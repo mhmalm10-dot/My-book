@@ -1,0 +1,1369 @@
+```html
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>قارئ الكتب التفاعلي | PDF Flipbook Pro</title>
+
+    <!-- مكتبة Tailwind CSS للتصميم السريع والمتجاوب -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['system-ui', '-apple-system', 'Segoe UI', 'Tahoma', 'Arial', 'sans-serif'],
+                    }
+                }
+            }
+        };
+    </script>
+
+    <!-- مكتبة PDF.js مع احتياط تلقائي لضمان عدم توقف الواجهة في حال بطء أو فشل شبكة -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+    <!-- مكتبة StPageFlip لمحاكاة تقليب الصفحات -->
+    <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            user-select: none;
+            font-family: system-ui, -apple-system, 'Segoe UI', Tahoma, Arial, sans-serif;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.5);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(148, 163, 184, 0.85);
+        }
+
+        /* تنسيق صفحة الكتاب وظلال المنتصف */
+        .page {
+            background-color: #ffffff;
+            overflow: hidden;
+            box-shadow: 0 0 22px rgba(0, 0, 0, 0.16);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .page.--left::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 34px;
+            height: 100%;
+            background: linear-gradient(to left, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0));
+            pointer-events: none;
+        }
+
+        .page.--right::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 34px;
+            height: 100%;
+            background: linear-gradient(to right, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0));
+            pointer-events: none;
+        }
+
+        .page canvas,
+        .page img {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain;
+            display: block;
+            pointer-events: none;
+        }
+
+        .page-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f8fafc;
+            color: #64748b;
+            font-size: 0.875rem;
+            gap: 0.5rem;
+            z-index: 5;
+        }
+
+        .spinner-sm {
+            width: 26px;
+            height: 26px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #4f46e5;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #zoom-wrapper {
+            transition: transform 0.22s ease-out;
+            transform-origin: center center;
+            will-change: transform;
+        }
+
+        .drop-zone-active {
+            border-color: #4f46e5 !important;
+            background-color: rgba(79, 70, 229, 0.08) !important;
+        }
+
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col transition-colors duration-200">
+
+    <!-- الشريط العلوي -->
+    <header class="h-16 px-3 md:px-6 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800 flex items-center justify-between z-30 shrink-0 shadow-sm">
+        <div class="flex items-center gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow shrink-0">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+            </div>
+            <div class="truncate">
+                <h1 id="book-title" class="font-bold text-sm md:text-lg leading-tight truncate">قارئ الكتب التفاعلي</h1>
+                <p id="book-subtitle" class="text-xs text-slate-500 dark:text-slate-400 truncate">تحميل كسول للملفات الضخمة + جودة High DPI + مساعد ذكي</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-1.5 md:gap-2 shrink-0">
+            <!-- زر المساعد الذكي -->
+            <button id="ai-toggle-btn" type="button" title="المساعد الذكي الجانبي" class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 active:scale-95 text-white text-sm font-semibold transition shadow-sm">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+                </svg>
+                <span class="hidden sm:inline">المساعد الذكي</span>
+            </button>
+
+            <!-- زر رفع ملف PDF -->
+            <label for="pdf-upload-input" class="cursor-pointer flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-semibold transition shadow-sm">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <span class="hidden sm:inline">رفع PDF</span>
+            </label>
+            <input type="file" id="pdf-upload-input" accept="application/pdf" class="hidden">
+
+            <!-- زر كتاب تجريبي -->
+            <button id="load-sample-btn" type="button" title="تحميل كتاب تجريبي" class="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium transition">
+                <svg class="w-4 h-4 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+                <span class="hidden lg:inline">تجريبي</span>
+            </button>
+
+            <!-- صوت تقليب الورق -->
+            <button id="sound-toggle-btn" type="button" title="صوت تقليب الورق" class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                <svg id="sound-icon-on" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                </svg>
+                <svg id="sound-icon-off" class="w-5 h-5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                    <line x1="23" y1="9" x2="17" y2="15"/>
+                    <line x1="17" y1="9" x2="23" y2="15"/>
+                </svg>
+            </button>
+
+            <!-- الوضع الليلي / النهاري -->
+            <button id="theme-toggle-btn" type="button" title="تبديل المظهر" class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                <svg id="theme-icon-sun" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="4"/>
+                    <path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/>
+                    <path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+                </svg>
+                <svg id="theme-icon-moon" class="w-5 h-5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- منطقة العمل الرئيسية -->
+    <main id="main-stage" class="flex-1 relative flex items-center justify-center overflow-hidden p-4">
+
+        <!-- شاشة البداية والسحب والإفلات -->
+        <div id="upload-screen" class="w-full max-w-xl mx-auto z-20">
+            <div id="drop-zone" class="border-2 border-dashed border-slate-300 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 rounded-3xl p-8 md:p-10 text-center shadow-xl transition cursor-pointer hover:border-indigo-500">
+                <div class="w-20 h-20 mx-auto mb-5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <svg class="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <path d="M12 12v6"/><path d="m15 15-3-3-3 3"/>
+                    </svg>
+                </div>
+                <h2 class="text-2xl font-bold mb-2">اسحب ملف الـ PDF وأفلته هنا</h2>
+                <p class="text-slate-500 dark:text-slate-400 text-sm md:text-base mb-6 max-w-md mx-auto">
+                    يعرض الملفات الكبيرة بسلاسة عبر التحميل الكسول صفحة بصفحة وجودة High DPI حادة، مع مساعد ذكي لاستخراج النصوص وتلخيصها.
+                </p>
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+                    <button type="button" onclick="document.getElementById('pdf-upload-input').click()" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-lg shadow-indigo-600/20 transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
+                        </svg>
+                        <span>اختر ملف PDF من الجهاز</span>
+                    </button>
+                    <button type="button" id="welcome-sample-btn" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                        </svg>
+                        <span>تجربة كتاب تفاعلي</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- شاشة التحميل -->
+        <div id="loading-overlay" class="hidden absolute inset-0 bg-slate-100/90 dark:bg-slate-950/90 backdrop-blur-sm z-40 flex flex-col items-center justify-center p-6 text-center">
+            <div class="w-14 h-14 border-4 border-indigo-200 dark:border-indigo-900 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+            <h3 id="loading-text" class="text-lg font-bold mb-1">جاري تجهيز الكتاب...</h3>
+            <p id="loading-progress" class="text-sm text-slate-500 dark:text-slate-400 mb-4">يتم فتح الملف بالتحميل الكسول دون انتظار طويل</p>
+            <div class="w-64 h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div id="loading-bar" class="h-full bg-indigo-600 transition-all duration-200 w-0"></div>
+            </div>
+        </div>
+
+        <!-- حاوية الكتاب التفاعلي -->
+        <div id="book-viewport" class="hidden w-full h-full flex items-center justify-center relative overflow-hidden">
+            <button id="prev-page-float" type="button" title="الصفحة السابقة" class="hidden md:flex absolute right-4 z-20 w-12 h-12 rounded-full bg-white/85 dark:bg-slate-800/85 hover:bg-white dark:hover:bg-slate-700 shadow-lg border border-slate-200/60 dark:border-slate-700/60 items-center justify-center text-slate-700 dark:text-slate-200 transition active:scale-90">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+
+            <div id="zoom-wrapper" class="flex items-center justify-center">
+                <div id="flipbook-container" class="shadow-2xl"></div>
+            </div>
+
+            <button id="next-page-float" type="button" title="الصفحة التالية" class="hidden md:flex absolute left-4 z-20 w-12 h-12 rounded-full bg-white/85 dark:bg-slate-800/85 hover:bg-white dark:hover:bg-slate-700 shadow-lg border border-slate-200/60 dark:border-slate-700/60 items-center justify-center text-slate-700 dark:text-slate-200 transition active:scale-90">
+                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+        </div>
+
+        <!-- درج المصغرات الجانبي -->
+        <aside id="thumbnails-drawer" class="hidden fixed inset-y-16 right-0 w-64 sm:w-72 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-l border-slate-200 dark:border-slate-800 shadow-2xl z-30 flex flex-col transition-transform duration-300 translate-x-full">
+            <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <span class="font-bold text-sm">مصغرات الصفحات</span>
+                <button id="close-thumbnails-btn" type="button" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div id="thumbnails-grid" class="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-3 content-start"></div>
+        </aside>
+
+        <!-- لوحة المساعد الذكي الجانبية (Sidebar) -->
+        <aside id="ai-side-panel" class="hidden fixed inset-y-16 left-0 w-full sm:w-96 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-r border-slate-200 dark:border-slate-800 shadow-2xl z-30 flex flex-col transition-transform duration-300 -translate-x-full">
+            <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-indigo-500/5">
+                <div>
+                    <h3 class="font-bold text-sm">المساعد الذكي للصفحة</h3>
+                    <p id="ai-mode-badge" class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">وضع التحليل المحلي (بدون إنترنت)</p>
+                </div>
+                <div class="flex items-center gap-1">
+                    <button id="toggle-ai-settings-btn" type="button" title="إعدادات Gemini API" class="p-1.5 rounded-lg hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </button>
+                    <button id="close-ai-panel-btn" type="button" class="p-1.5 rounded-lg hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-500">
+                        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div id="ai-settings-box" class="hidden p-3 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-xs space-y-2">
+                <label class="block font-bold">مفتاح Gemini API (اختياري):</label>
+                <div class="flex gap-1.5">
+                    <input type="password" id="gemini-api-key-input" placeholder="AIzaSy..." dir="ltr" class="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 text-left">
+                    <button id="save-api-key-btn" type="button" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold">حفظ</button>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">بدون مفتاح، يعمل المساعد محلياً لاستخراج وتلخيص وشرح نصوص الصفحة تلقائياً.</p>
+            </div>
+
+            <div class="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
+                <div class="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                    <span>إجراءات سريعة:</span>
+                    <span id="ai-current-page-label" class="text-indigo-600 dark:text-indigo-400">صفحة 1</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button type="button" data-ai-action="summarize" class="ai-quick-btn px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-right transition">📝 تلخيص الصفحة</button>
+                    <button type="button" data-ai-action="explain" class="ai-quick-btn px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-right transition">💡 شرح النقاط</button>
+                    <button type="button" data-ai-action="extract" class="ai-quick-btn px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-right transition">📄 استخراج النص</button>
+                    <button type="button" data-ai-action="quiz" class="ai-quick-btn px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-right transition">❓ أسئلة اختبار</button>
+                </div>
+            </div>
+
+            <div id="ai-chat-messages" class="flex-1 overflow-y-auto p-4 space-y-3 text-sm select-text">
+                <div class="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 text-slate-700 dark:text-slate-200 leading-relaxed">
+                    مرحباً! افتح صفحة في الكتاب واضغط على أي زر لتلخيص الصفحة أو شرح نقاطها أو استخراج نصها أو طرح سؤال مباشر.
+                </div>
+            </div>
+
+            <form id="ai-chat-form" class="p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex gap-2">
+                <input type="text" id="ai-chat-input" placeholder="اسأل عن الصفحة الحالية..." class="flex-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-950 focus:outline-none text-sm">
+                <button type="submit" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition">إرسال</button>
+            </form>
+        </aside>
+    </main>
+
+    <!-- شريط الأدوات السفلي -->
+    <footer id="bottom-toolbar" class="hidden h-16 px-3 md:px-6 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 z-30 shrink-0 shadow-lg">
+        <div class="flex items-center gap-1.5">
+            <button id="toggle-thumbnails-btn" type="button" class="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium transition">
+                <svg class="w-4 h-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                <span class="hidden sm:inline">المصغرات</span>
+            </button>
+        </div>
+
+        <div class="flex items-center gap-1.5 sm:gap-3 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1.5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+            <button id="first-page-btn" type="button" title="الصفحة الأولى" class="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 hidden sm:block">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+            </button>
+            <button id="prev-page-btn" type="button" title="السابق" class="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+
+            <div class="flex items-center gap-1.5 text-sm font-semibold px-1">
+                <input type="number" id="page-number-input" min="1" value="1" class="w-14 h-8 text-center rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 font-bold">
+                <span class="text-slate-400">/</span>
+                <span id="total-pages-display">0</span>
+            </div>
+
+            <button id="next-page-btn" type="button" title="التالي" class="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <button id="last-page-btn" type="button" title="الصفحة الأخيرة" class="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 hidden sm:block">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+            </button>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+            <button id="zoom-out-btn" type="button" title="تصغير" class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            </button>
+            <span id="zoom-level-text" class="hidden md:inline-block text-xs font-bold w-11 text-center">100%</span>
+            <button id="zoom-in-btn" type="button" title="تكبير" class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            </button>
+            <button id="zoom-reset-btn" type="button" title="إعادة الحجم" class="hidden sm:flex p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <div class="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
+            <button id="fullscreen-btn" type="button" title="ملء الشاشة" class="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition">
+                <svg id="fullscreen-icon-max" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                <svg id="fullscreen-icon-min" class="w-4 h-4 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+            </button>
+        </div>
+    </footer>
+
+    <!-- إشعار منبثق -->
+    <div id="toast-message" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-semibold shadow-2xl opacity-0 pointer-events-none transition-all duration-300">
+        <span id="toast-text"></span>
+    </div>
+
+    <script>
+        const PDF_CMAP_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/';
+
+        // تهيئة pdf.js بأمان وتعطيل worker لتفادي قيود المعاينة
+        if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+        }
+
+        // محرك صوت تقليب الورق عبر Web Audio API
+        class PaperSoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) this.ctx = new AudioCtx();
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch(() => {});
+                }
+            }
+            playFlip() {
+                if (!this.enabled) return;
+                try {
+                    this.init();
+                    if (!this.ctx) return;
+                    const duration = 0.25;
+                    const bufferSize = Math.floor(this.ctx.sampleRate * duration);
+                    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        const p = i / bufferSize;
+                        data[i] = (Math.random() * 2 - 1) * Math.sin(p * Math.PI) * Math.pow(1 - p, 0.6);
+                    }
+                    const noise = this.ctx.createBufferSource();
+                    noise.buffer = buffer;
+
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = 'bandpass';
+                    filter.frequency.setValueAtTime(950, this.ctx.currentTime);
+                    filter.frequency.exponentialRampToValueAtTime(2100, this.ctx.currentTime + duration * 0.6);
+
+                    const gain = this.ctx.createGain();
+                    gain.gain.setValueAtTime(0.01, this.ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 0.07);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+
+                    noise.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    noise.start();
+                } catch (_) {}
+            }
+        }
+
+        const soundEngine = new PaperSoundEngine();
+
+        // حالة التطبيق
+        let pdfDoc = null;
+        let sampleBookPages = null;
+        let pageFlip = null;
+        let totalPages = 0;
+        let currentPageIndex = 0;
+        let currentZoom = 1;
+        let panX = 0;
+        let panY = 0;
+        let isDraggingPan = false;
+        let startPanX = 0;
+        let startPanY = 0;
+        let pageAspectRatio = 0.72;
+
+        // ذاكرة تخزين مؤقت للتحميل الكسول (بحد أقصى 12 صفحة عالية الدقة)
+        const MAX_CACHED_PAGES = 12;
+        const pageRenderCache = new Map();
+        const activeRenderTasks = new Map();
+        const pageTextCache = new Map();
+        let pageElementsList = [];
+        let thumbnailObserver = null;
+
+        const el = {
+            uploadInput: document.getElementById('pdf-upload-input'),
+            dropZone: document.getElementById('drop-zone'),
+            uploadScreen: document.getElementById('upload-screen'),
+            loadingOverlay: document.getElementById('loading-overlay'),
+            loadingText: document.getElementById('loading-text'),
+            loadingProgress: document.getElementById('loading-progress'),
+            loadingBar: document.getElementById('loading-bar'),
+            bookViewport: document.getElementById('book-viewport'),
+            zoomWrapper: document.getElementById('zoom-wrapper'),
+            flipbookContainer: document.getElementById('flipbook-container'),
+            bottomToolbar: document.getElementById('bottom-toolbar'),
+            bookTitle: document.getElementById('book-title'),
+            bookSubtitle: document.getElementById('book-subtitle'),
+            pageInput: document.getElementById('page-number-input'),
+            totalPagesDisplay: document.getElementById('total-pages-display'),
+            thumbnailsDrawer: document.getElementById('thumbnails-drawer'),
+            thumbnailsGrid: document.getElementById('thumbnails-grid'),
+            zoomLevelText: document.getElementById('zoom-level-text'),
+            toast: document.getElementById('toast-message'),
+            toastText: document.getElementById('toast-text'),
+            aiSidePanel: document.getElementById('ai-side-panel'),
+            aiChatMessages: document.getElementById('ai-chat-messages'),
+            aiChatInput: document.getElementById('ai-chat-input'),
+            aiCurrentPageLabel: document.getElementById('ai-current-page-label'),
+            aiModeBadge: document.getElementById('ai-mode-badge'),
+            geminiKeyInput: document.getElementById('gemini-api-key-input')
+        };
+
+        let toastTimer = null;
+        function showToast(message) {
+            el.toastText.textContent = message;
+            el.toast.classList.remove('opacity-0', 'pointer-events-none');
+            el.toast.classList.add('opacity-100');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                el.toast.classList.add('opacity-0', 'pointer-events-none');
+                el.toast.classList.remove('opacity-100');
+            }, 3000);
+        }
+
+        // المظهر والصوت
+        document.getElementById('theme-toggle-btn').addEventListener('click', () => {
+            const isDark = document.documentElement.classList.toggle('dark');
+            document.getElementById('theme-icon-sun').classList.toggle('hidden', !isDark);
+            document.getElementById('theme-icon-moon').classList.toggle('hidden', isDark);
+            showToast(isDark ? 'تم تفعيل الوضع الليلي' : 'تم تفعيل الوضع النهاري');
+        });
+
+        document.getElementById('sound-toggle-btn').addEventListener('click', () => {
+            soundEngine.enabled = !soundEngine.enabled;
+            document.getElementById('sound-icon-on').classList.toggle('hidden', !soundEngine.enabled);
+            document.getElementById('sound-icon-off').classList.toggle('hidden', soundEngine.enabled);
+            if (soundEngine.enabled) soundEngine.playFlip();
+            showToast(soundEngine.enabled ? 'تم تشغيل صوت تقليب الورق' : 'تم كتم صوت تقليب الورق');
+        });
+
+        // رفع الملفات والسحب والإفلات
+        el.uploadInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) handlePDFFile(file);
+        });
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach((evt) => {
+            document.body.addEventListener(evt, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        el.dropZone.addEventListener('dragover', () => el.dropZone.classList.add('drop-zone-active'));
+        el.dropZone.addEventListener('dragleave', () => el.dropZone.classList.remove('drop-zone-active'));
+
+        document.body.addEventListener('drop', (e) => {
+            el.dropZone.classList.remove('drop-zone-active');
+            const files = e.dataTransfer && e.dataTransfer.files;
+            if (!files || !files.length) return;
+            if (files[0].type === 'application/pdf' || files[0].name.toLowerCase().endsWith('.pdf')) {
+                handlePDFFile(files[0]);
+            } else {
+                showToast('يرجى اختيار ملف بصيغة PDF');
+            }
+        });
+
+        function handlePDFFile(file) {
+            el.bookTitle.textContent = file.name.replace(/\.pdf$/i, '');
+            const reader = new FileReader();
+            reader.onload = async function () {
+                const bytes = new Uint8Array(this.result);
+                await loadPDFDocument(bytes);
+            };
+            reader.onerror = function () {
+                showToast('حدث خطأ أثناء قراءة الملف من الجهاز');
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function clearCaches() {
+            pageRenderCache.clear();
+            activeRenderTasks.clear();
+            pageTextCache.clear();
+            if (thumbnailObserver) {
+                thumbnailObserver.disconnect();
+                thumbnailObserver = null;
+            }
+        }
+
+        // الكتاب التجريبي
+        function loadSampleBook() {
+            pdfDoc = null;
+            clearCaches();
+            el.uploadScreen.classList.add('hidden');
+            el.loadingOverlay.classList.remove('hidden');
+            el.loadingText.textContent = 'جاري تجهيز الكتاب التجريبي...';
+            el.loadingBar.style.width = '75%';
+
+            el.bookTitle.textContent = 'دليل القراءة التفاعلية السريعة';
+            el.bookSubtitle.textContent = 'كتاب تجريبي (6 صفحات) - جرّب تقليب الصفحات والمساعد الذكي';
+
+            sampleBookPages = [
+                { dark: true, title: 'قارئ الكتب التفاعلي', sub: 'تحميل كسول + High DPI + مساعد ذكي', body: 'اسحب الصفحة أو استخدم أزرار التنقل للتقليب، وافتح المساعد الذكي لتلخيص الصفحة أو شرح نقاطها.', foot: 'الغلاف' },
+                { dark: false, title: '1. التحميل الكسول للملفات الضخمة', sub: 'رسم عند الطلب صفحة بصفحة', body: 'يتم رسم الصفحة الحالية والصفحات المجاورة فقط في الذاكرة لتجنب استهلاك الذاكرة أو بطء فتح الملفات الكبيرة.', foot: 'صفحة 1' },
+                { dark: false, title: '2. جودة عرض فائقة (High DPI)', sub: 'وضوح حاد عند التكبير', body: 'يتم ضبط مقياس الرسم بناءً على كثافة شاشة الجهاز لتبقى النصوص والتفاصيل واضحة حتى عند التكبير.', foot: 'صفحة 2' },
+                { dark: false, title: '3. المساعد الذكي الجانبي', sub: 'استخراج النصوص وتلخيصها وشرحها', body: 'يقرأ المساعد نص الصفحة المفتوحة ويساعدك على التلخيص الفوري وشرح النقاط المهمة وطرح الأسئلة.', foot: 'صفحة 3' },
+                { dark: false, title: '4. تجربة مريحة لللمس والتابلت', sub: 'أدوات متكاملة في متناول يدك', body: 'يمكنك التكبير والتصغير، التنقل المباشر برقم الصفحة، عرض المصغرات، والتبديل بين الوضع الليلي والنهاري.', foot: 'صفحة 4' },
+                { dark: true, title: 'نهاية الكتاب التجريبي', sub: 'ارفع ملف الـ PDF الخاص بك للبدء', body: 'اضغط على زر "رفع PDF" في الشريط العلوي لفتح مستندك الخاص.', foot: 'الغلاف الخلفي' }
+            ];
+
+            sampleBookPages.forEach((p, i) => {
+                pageTextCache.set(i, `${p.title}. ${p.sub}. ${p.body}`);
+            });
+
+            totalPages = sampleBookPages.length;
+            pageAspectRatio = 0.72;
+            el.loadingBar.style.width = '100%';
+
+            setTimeout(() => {
+                buildLazyThumbnails();
+                initFlipbook(0);
+            }, 120);
+        }
+
+        document.getElementById('load-sample-btn').addEventListener('click', loadSampleBook);
+        document.getElementById('welcome-sample-btn').addEventListener('click', loadSampleBook);
+
+        // تحميل ملف PDF عبر PDF.js مع تعطيل worker (disableWorker: true)
+        async function loadPDFDocument(data) {
+            try {
+                if (!window.pdfjsLib || typeof window.pdfjsLib.getDocument !== 'function') {
+                    throw new Error('مكتبة PDF.js غير متاحة حالياً في المتصفح');
+                }
+
+                sampleBookPages = null;
+                clearCaches();
+
+                el.uploadScreen.classList.add('hidden');
+                el.bookViewport.classList.add('hidden');
+                el.bottomToolbar.classList.add('hidden');
+                el.loadingOverlay.classList.remove('hidden');
+                el.loadingText.textContent = 'جاري قراءة بنية ملف PDF...';
+                el.loadingProgress.textContent = 'تم تعطيل pdf.worker للعمل داخل المعاينة مباشرة';
+                el.loadingBar.style.width = '35%';
+
+                const loadingTask = window.pdfjsLib.getDocument({
+                    data: data,
+                    disableWorker: true,
+                    cMapUrl: PDF_CMAP_URL,
+                    cMapPacked: true,
+                    isEvalSupported: false
+                });
+
+                pdfDoc = await loadingTask.promise;
+                totalPages = pdfDoc.numPages || 0;
+
+                if (totalPages < 1) {
+                    throw new Error('الملف لا يحتوي على صفحات صالحة للعرض');
+                }
+
+                const firstPage = await pdfDoc.getPage(1);
+                const viewport = firstPage.getViewport({ scale: 1 });
+                pageAspectRatio = (viewport.width && viewport.height) ? (viewport.width / viewport.height) : 0.72;
+
+                el.bookSubtitle.textContent = `إجمالي الصفحات: ${totalPages} (تحميل كسول صفحة بصفحة)`;
+                el.loadingBar.style.width = '100%';
+
+                buildLazyThumbnails();
+                initFlipbook(0);
+            } catch (err) {
+                console.error('PDF load error:', err);
+                el.loadingOverlay.classList.add('hidden');
+                el.uploadScreen.classList.remove('hidden');
+                showToast(`تعذر فتح ملف PDF: ${err && err.message ? err.message : 'تأكد من سلامة الملف'}`);
+            }
+        }
+
+        function getHighDpiScale(baseWidth) {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+            const targetWidth = Math.max(1200, Math.min(2200, 960 * dpr * 1.4));
+            const scale = targetWidth / Math.max(1, baseWidth);
+            return Math.max(1.5, Math.min(3.5, scale));
+        }
+
+        function renderSampleToDataUrl(index) {
+            const p = sampleBookPages[index];
+            const canvas = document.createElement('canvas');
+            canvas.width = 1200;
+            canvas.height = 1666;
+            const ctx = canvas.getContext('2d');
+
+            if (p.dark) {
+                const grad = ctx.createLinearGradient(0, 0, 1200, 1666);
+                grad.addColorStop(0, '#1e1b4b');
+                grad.addColorStop(1, '#4338ca');
+                ctx.fillStyle = grad;
+            } else {
+                ctx.fillStyle = '#fdfbf7';
+            }
+            ctx.fillRect(0, 0, 1200, 1666);
+
+            ctx.fillStyle = p.dark ? '#ffffff' : '#0f172a';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 62px system-ui, sans-serif';
+            ctx.fillText(p.title, 600, 320);
+
+            ctx.fillStyle = p.dark ? '#c7d2fe' : '#4f46e5';
+            ctx.font = '600 38px system-ui, sans-serif';
+            ctx.fillText(p.sub, 600, 405);
+
+            ctx.fillStyle = p.dark ? '#f1f5f9' : '#334155';
+            ctx.font = '400 36px system-ui, sans-serif';
+            const words = p.body.split(' ');
+            let line = '';
+            let y = 590;
+            for (const w of words) {
+                const test = line + w + ' ';
+                if (ctx.measureText(test).width > 940 && line !== '') {
+                    ctx.fillText(line, 600, y);
+                    line = w + ' ';
+                    y += 68;
+                } else {
+                    line = test;
+                }
+            }
+            ctx.fillText(line, 600, y);
+
+            ctx.font = 'bold 30px system-ui, sans-serif';
+            ctx.fillStyle = p.dark ? 'rgba(255,255,255,0.7)' : '#64748b';
+            ctx.fillText(`- ${p.foot} -`, 600, 1530);
+
+            return canvas.toDataURL('image/jpeg', 0.92);
+        }
+
+        function applyImageToPage(pageIndex, url) {
+            const pageDiv = pageElementsList[pageIndex];
+            if (!pageDiv) return;
+            const img = pageDiv.querySelector('img');
+            const placeholder = pageDiv.querySelector('.page-placeholder');
+            if (img && img.src !== url) {
+                img.src = url;
+                img.classList.remove('hidden');
+            }
+            if (placeholder) placeholder.classList.add('hidden');
+        }
+
+        function releaseFarPageImage(pageIndex) {
+            const pageDiv = pageElementsList[pageIndex];
+            if (!pageDiv) return;
+            const img = pageDiv.querySelector('img');
+            const placeholder = pageDiv.querySelector('.page-placeholder');
+            if (img) {
+                img.removeAttribute('src');
+                img.classList.add('hidden');
+            }
+            if (placeholder) placeholder.classList.remove('hidden');
+        }
+
+        // رسم صفحة واحدة عند الطلب
+        async function renderPageOnDemand(pageIndex) {
+            if (pageIndex < 0 || pageIndex >= totalPages) return null;
+
+            if (pageRenderCache.has(pageIndex)) {
+                const cached = pageRenderCache.get(pageIndex);
+                pageRenderCache.delete(pageIndex);
+                pageRenderCache.set(pageIndex, cached);
+                applyImageToPage(pageIndex, cached);
+                return cached;
+            }
+
+            if (activeRenderTasks.has(pageIndex)) {
+                return activeRenderTasks.get(pageIndex);
+            }
+
+            const task = (async () => {
+                try {
+                    let url = null;
+                    if (sampleBookPages) {
+                        url = renderSampleToDataUrl(pageIndex);
+                    } else if (pdfDoc) {
+                        const page = await pdfDoc.getPage(pageIndex + 1);
+                        const baseVp = page.getViewport({ scale: 1 });
+                        const vp = page.getViewport({ scale: getHighDpiScale(baseVp.width) });
+
+                        const canvas = document.createElement('canvas');
+                        canvas.width = Math.max(1, Math.floor(vp.width));
+                        canvas.height = Math.max(1, Math.floor(vp.height));
+                        const ctx = canvas.getContext('2d', { alpha: false });
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+                        url = canvas.toDataURL('image/jpeg', 0.92);
+                        canvas.width = 0;
+                        canvas.height = 0;
+                    }
+
+                    if (url) {
+                        if (pageRenderCache.size >= MAX_CACHED_PAGES) {
+                            const oldest = pageRenderCache.keys().next().value;
+                            if (Math.abs(oldest - currentPageIndex) > 2) {
+                                pageRenderCache.delete(oldest);
+                                releaseFarPageImage(oldest);
+                            }
+                        }
+                        pageRenderCache.set(pageIndex, url);
+                        applyImageToPage(pageIndex, url);
+                    }
+                    return url;
+                } finally {
+                    activeRenderTasks.delete(pageIndex);
+                }
+            })();
+
+            activeRenderTasks.set(pageIndex, task);
+            return task;
+        }
+
+        // تحميل الصفحة الحالية والصفحات المجاورة فقط
+        async function loadNeighborsWindow(centerIndex) {
+            currentPageIndex = centerIndex;
+            await renderPageOnDemand(centerIndex);
+            if (centerIndex + 1 < totalPages) {
+                await renderPageOnDemand(centerIndex + 1);
+            }
+            const nearby = [centerIndex - 1, centerIndex - 2, centerIndex + 2, centerIndex + 3];
+            for (const idx of nearby) {
+                if (idx >= 0 && idx < totalPages) {
+                    renderPageOnDemand(idx);
+                }
+            }
+        }
+
+        // مصغرات كسولة
+        function buildLazyThumbnails() {
+            el.thumbnailsGrid.innerHTML = '';
+            const frag = document.createDocumentFragment();
+
+            for (let i = 0; i < totalPages; i++) {
+                const item = document.createElement('div');
+                item.className = 'thumb-item group cursor-pointer rounded-xl overflow-hidden border-2 border-transparent hover:border-indigo-500 bg-slate-100 dark:bg-slate-800 p-1.5 transition flex flex-col items-center';
+                item.dataset.pageIndex = String(i);
+
+                const box = document.createElement('div');
+                box.className = 'w-full bg-white dark:bg-slate-700 rounded-lg overflow-hidden flex items-center justify-center';
+                box.style.aspectRatio = String(pageAspectRatio);
+
+                const img = document.createElement('img');
+                img.className = 'w-full h-full object-contain hidden';
+                img.alt = `صفحة ${i + 1}`;
+
+                const badge = document.createElement('span');
+                badge.className = 'thumb-placeholder text-xs font-bold text-slate-400';
+                badge.textContent = String(i + 1);
+
+                box.appendChild(img);
+                box.appendChild(badge);
+
+                const label = document.createElement('span');
+                label.className = 'text-xs font-bold mt-1 text-slate-600 dark:text-slate-300';
+                label.textContent = `صفحة ${i + 1}`;
+
+                item.appendChild(box);
+                item.appendChild(label);
+                item.addEventListener('click', () => {
+                    if (pageFlip) {
+                        loadNeighborsWindow(i).then(() => pageFlip.flip(i));
+                        toggleThumbnails(false);
+                    }
+                });
+                frag.appendChild(item);
+            }
+
+            el.thumbnailsGrid.appendChild(frag);
+
+            if (window.IntersectionObserver) {
+                thumbnailObserver = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (entry.isIntersecting) {
+                            const idx = parseInt(entry.target.dataset.pageIndex, 10);
+                            renderSingleThumbnail(entry.target, idx);
+                            thumbnailObserver.unobserve(entry.target);
+                        }
+                    });
+                }, { root: el.thumbnailsGrid, rootMargin: '150px' });
+
+                document.querySelectorAll('.thumb-item').forEach((n) => thumbnailObserver.observe(n));
+            }
+        }
+
+        async function renderSingleThumbnail(itemEl, pageIndex) {
+            try {
+                const img = itemEl.querySelector('img');
+                const placeholder = itemEl.querySelector('.thumb-placeholder');
+                if (!img || img.src) return;
+
+                if (sampleBookPages) {
+                    img.src = renderSampleToDataUrl(pageIndex);
+                } else if (pdfDoc) {
+                    const page = await pdfDoc.getPage(pageIndex + 1);
+                    const vp = page.getViewport({ scale: 0.28 });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.floor(vp.width));
+                    canvas.height = Math.max(1, Math.floor(vp.height));
+                    const ctx = canvas.getContext('2d', { alpha: false });
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+                    img.src = canvas.toDataURL('image/jpeg', 0.72);
+                    canvas.width = 0;
+                    canvas.height = 0;
+                } else {
+                    return;
+                }
+
+                img.classList.remove('hidden');
+                if (placeholder) placeholder.classList.add('hidden');
+            } catch (_) {}
+        }
+
+        // حساب أبعاد الكتاب
+        function getBookDimensions() {
+            const stage = document.getElementById('main-stage');
+            const availW = Math.max(260, stage.clientWidth - (window.innerWidth < 768 ? 24 : 120));
+            const availH = Math.max(320, stage.clientHeight - 24);
+            const portrait = window.innerWidth < 768 || window.innerHeight > window.innerWidth;
+
+            let w, h;
+            if (portrait) {
+                h = availH;
+                w = h * pageAspectRatio;
+                if (w > availW) {
+                    w = availW;
+                    h = w / pageAspectRatio;
+                }
+            } else {
+                h = availH;
+                w = h * pageAspectRatio;
+                if (w * 2 > availW) {
+                    w = availW / 2;
+                    h = w / pageAspectRatio;
+                }
+            }
+
+            return {
+                width: Math.max(220, Math.floor(w)),
+                height: Math.max(300, Math.floor(h)),
+                isPortrait: portrait
+            };
+        }
+
+        // تهيئة الكتاب بعد جاهزية الحاوية وتجهيز الصفحات المجاورة
+        function initFlipbook(startPage = 0) {
+            if (totalPages < 1) return;
+
+            if (pageFlip) {
+                try { pageFlip.destroy(); } catch (_) {}
+                pageFlip = null;
+            }
+
+            el.loadingOverlay.classList.add('hidden');
+            el.bookViewport.classList.remove('hidden');
+            el.bookViewport.style.display = 'flex';
+            el.bottomToolbar.classList.remove('hidden');
+            el.flipbookContainer.style.display = 'block';
+            el.flipbookContainer.innerHTML = '';
+            resetZoom();
+
+            requestAnimationFrame(async () => {
+                const dims = getBookDimensions();
+                el.flipbookContainer.style.width = `${dims.isPortrait ? dims.width : dims.width * 2}px`;
+                el.flipbookContainer.style.height = `${dims.height}px`;
+
+                pageElementsList = [];
+                const frag = document.createDocumentFragment();
+
+                for (let i = 0; i < totalPages; i++) {
+                    const pDiv = document.createElement('div');
+                    pDiv.className = 'page';
+                    if (totalPages > 2 && (i === 0 || i === totalPages - 1)) {
+                        pDiv.dataset.density = 'hard';
+                    }
+
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'page-placeholder';
+                    placeholder.innerHTML = `<div class="spinner-sm"></div><span>صفحة ${i + 1}</span>`;
+
+                    const img = document.createElement('img');
+                    img.className = 'hidden';
+                    img.alt = `صفحة ${i + 1}`;
+                    img.draggable = false;
+
+                    if (pageRenderCache.has(i)) {
+                        img.src = pageRenderCache.get(i);
+                        img.classList.remove('hidden');
+                        placeholder.classList.add('hidden');
+                    }
+
+                    pDiv.appendChild(placeholder);
+                    pDiv.appendChild(img);
+                    frag.appendChild(pDiv);
+                    pageElementsList.push(pDiv);
+                }
+
+                el.flipbookContainer.appendChild(frag);
+                await loadNeighborsWindow(startPage);
+
+                if (window.St && typeof window.St.PageFlip === 'function') {
+                    pageFlip = new window.St.PageFlip(el.flipbookContainer, {
+                        width: dims.width,
+                        height: dims.height,
+                        size: 'fixed',
+                        minWidth: 200,
+                        maxWidth: 1600,
+                        minHeight: 280,
+                        maxHeight: 2000,
+                        maxShadowOpacity: 0.5,
+                        showCover: totalPages > 1,
+                        mobileScrollSupport: false,
+                        usePortrait: dims.isPortrait,
+                        flippingTime: 650,
+                        swipeDistance: 25,
+                        clickEventForward: true,
+                        startPage: startPage
+                    });
+
+                    pageFlip.loadFromHTML(pageElementsList);
+                    pageFlip.on('flip', (e) => {
+                        soundEngine.playFlip();
+                        const idx = e.data;
+                        updatePageIndicator(idx);
+                        loadNeighborsWindow(idx);
+                    });
+                }
+
+                el.totalPagesDisplay.textContent = String(totalPages);
+                el.pageInput.max = String(totalPages);
+                updatePageIndicator(startPage);
+            });
+        }
+
+        function updatePageIndicator(pageIndex) {
+            currentPageIndex = pageIndex;
+            const humanPage = pageIndex + 1;
+            el.pageInput.value = String(humanPage);
+            el.aiCurrentPageLabel.textContent = `صفحة ${humanPage} من ${totalPages}`;
+
+            document.querySelectorAll('.thumb-item').forEach((item, i) => {
+                if (i === pageIndex) {
+                    item.classList.add('border-indigo-600', 'bg-indigo-50', 'dark:bg-indigo-950/50');
+                } else {
+                    item.classList.remove('border-indigo-600', 'bg-indigo-50', 'dark:bg-indigo-950/50');
+                }
+            });
+        }
+
+        let resizeTimer = null;
+        window.addEventListener('resize', () => {
+            if (totalPages < 1) return;
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                const idx = pageFlip ? pageFlip.getCurrentPageIndex() : currentPageIndex;
+                initFlipbook(idx);
+            }, 250);
+        });
+
+        // التنقل والتكبير والملء الكامل
+        document.getElementById('next-page-btn').addEventListener('click', () => pageFlip && pageFlip.flipNext());
+        document.getElementById('prev-page-btn').addEventListener('click', () => pageFlip && pageFlip.flipPrev());
+        document.getElementById('next-page-float').addEventListener('click', () => pageFlip && pageFlip.flipNext());
+        document.getElementById('prev-page-float').addEventListener('click', () => pageFlip && pageFlip.flipPrev());
+        document.getElementById('first-page-btn').addEventListener('click', () => pageFlip && pageFlip.flip(0));
+        document.getElementById('last-page-btn').addEventListener('click', () => pageFlip && pageFlip.flip(totalPages - 1));
+
+        el.pageInput.addEventListener('change', (e) => {
+            let n = parseInt(e.target.value, 10);
+            if (isNaN(n) || n < 1) n = 1;
+            if (n > totalPages) n = totalPages;
+            e.target.value = String(n);
+            const targetIdx = n - 1;
+            loadNeighborsWindow(targetIdx).then(() => {
+                if (pageFlip) pageFlip.flip(targetIdx);
+                else updatePageIndicator(targetIdx);
+            });
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!pageFlip || document.activeElement === el.pageInput || document.activeElement === el.aiChatInput) return;
+            if (e.key === 'ArrowLeft') pageFlip.flipNext();
+            else if (e.key === 'ArrowRight') pageFlip.flipPrev();
+        });
+
+        function applyZoom() {
+            el.zoomWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+            el.zoomLevelText.textContent = `${Math.round(currentZoom * 100)}%`;
+            el.zoomWrapper.style.cursor = currentZoom > 1 ? 'grab' : 'default';
+        }
+
+        function resetZoom() {
+            currentZoom = 1;
+            panX = 0;
+            panY = 0;
+            applyZoom();
+        }
+
+        document.getElementById('zoom-in-btn').addEventListener('click', () => {
+            if (currentZoom < 2.5) {
+                currentZoom = Math.min(2.5, +(currentZoom + 0.25).toFixed(2));
+                applyZoom();
+            }
+        });
+
+        document.getElementById('zoom-out-btn').addEventListener('click', () => {
+            if (currentZoom > 0.75) {
+                currentZoom = Math.max(0.75, +(currentZoom - 0.25).toFixed(2));
+                if (currentZoom <= 1) { panX = 0; panY = 0; }
+                applyZoom();
+            }
+        });
+
+        document.getElementById('zoom-reset-btn').addEventListener('click', resetZoom);
+
+        el.bookViewport.addEventListener('mousedown', (e) => {
+            if (currentZoom <= 1) return;
+            isDraggingPan = true;
+            startPanX = e.clientX - panX;
+            startPanY = e.clientY - panY;
+            el.zoomWrapper.style.cursor = 'grabbing';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDraggingPan) return;
+            panX = e.clientX - startPanX;
+            panY = e.clientY - startPanY;
+            applyZoom();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDraggingPan = false;
+            if (currentZoom > 1) el.zoomWrapper.style.cursor = 'grab';
+        });
+
+        function toggleThumbnails(forceState) {
+            const isHidden = el.thumbnailsDrawer.classList.contains('hidden');
+            const open = forceState !== undefined ? forceState : isHidden;
+            if (open) {
+                el.thumbnailsDrawer.classList.remove('hidden');
+                requestAnimationFrame(() => el.thumbnailsDrawer.classList.remove('translate-x-full'));
+            } else {
+                el.thumbnailsDrawer.classList.add('translate-x-full');
+                setTimeout(() => el.thumbnailsDrawer.classList.add('hidden'), 300);
+            }
+        }
+
+        document.getElementById('toggle-thumbnails-btn').addEventListener('click', () => toggleThumbnails());
+        document.getElementById('close-thumbnails-btn').addEventListener('click', () => toggleThumbnails(false));
+
+        document.getElementById('fullscreen-btn').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => showToast('ملء الشاشة غير مدعوم في هذه النافذة'));
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        document.addEventListener('fullscreenchange', () => {
+            const full = !!document.fullscreenElement;
+            document.getElementById('fullscreen-icon-max').classList.toggle('hidden', full);
+            document.getElementById('fullscreen-icon-min').classList.toggle('hidden', !full);
+        });
+
+        // المساعد الذكي الجانبي (استخراج النص + تلخيص + شرح + أسئلة + دعم Gemini API اختياري)
+        const GEMINI_KEY_STORAGE = 'pdf_flipbook_gemini_key';
+
+        function syncAiBadge() {
+            const key = localStorage.getItem(GEMINI_KEY_STORAGE) || '';
+            el.geminiKeyInput.value = key;
+            if (key.trim().length > 10) {
+                el.aiModeBadge.textContent = 'متصل بـ Gemini AI السحابي';
+                el.aiModeBadge.className = 'text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold';
+            } else {
+                el.aiModeBadge.textContent = 'وضع التحليل المحلي (بدون إنترنت)';
+                el.aiModeBadge.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
+            }
+        }
+        syncAiBadge();
+
+        function toggleAiPanel(forceState) {
+            const isHidden = el.aiSidePanel.classList.contains('hidden');
+            const open = forceState !== undefined ? forceState : isHidden;
+            if (open) {
+                el.aiSidePanel.classList.remove('hidden');
+                requestAnimationFrame(() => el.aiSidePanel.classList.remove('-translate-x-full'));
+            } else {
+                el.aiSidePanel.classList.add('-translate-x-full');
+                setTimeout(() => el.aiSidePanel.classList.add('hidden'), 300);
+            }
+        }
+
+        document.getElementById('ai-toggle-btn').addEventListener('click', () => toggleAiPanel());
+        document.getElementById('close-ai-panel-btn').addEventListener('click', () => toggleAiPanel(false));
+
+        document.getElementById('toggle-ai-settings-btn').addEventListener('click', () => {
+            document.getElementById('ai-settings-box').classList.toggle('hidden');
+        });
+
+        document.getElementById('save-api-key-btn').addEventListener('click', () => {
+            const val = el.geminiKeyInput.value.trim();
+            if (val) {
+                localStorage.setItem(GEMINI_KEY_STORAGE, val);
+                showToast('تم حفظ مفتاح Gemini API');
+            } else {
+                localStorage.removeItem(GEMINI_KEY_STORAGE);
+                showToast('تم التفعيل على الوضع المحلي');
+            }
+            syncAiBadge();
+            document.getElementById('ai-settings-box').classList.add('hidden');
+        });
+
+        async function extractPageText(pageIndex) {
+            if (pageTextCache.has(pageIndex)) return pageTextCache.get(pageIndex);
+            if (!pdfDoc) return '';
+            try {
+                const page = await pdfDoc.getPage(pageIndex + 1);
+                const content = await page.getTextContent();
+                const text = content.items.map((it) => it.str).join(' ').replace(/\s+/g, ' ').trim();
+                pageTextCache.set(pageIndex, text);
+                return text;
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function addChatBubble(role, html) {
+            const div = document.createElement('div');
+            div.className = role === 'user'
+                ? 'p-3 rounded-2xl bg-indigo-600 text-white mr-6 shadow-sm leading-relaxed text-xs'
+                : 'p-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 ml-2 shadow-sm leading-relaxed space-y-1.5 text-xs';
+            div.innerHTML = html;
+            el.aiChatMessages.appendChild(div);
+            el.aiChatMessages.scrollTop = el.aiChatMessages.scrollHeight;
+            return div;
+        }
+
+        function localSmartAnalysis(text, action, question = '') {
+            if (!text || text.length < 10) {
+                return '<p>لم يتم العثور على نص مقروء في هذه الصفحة (قد تكون صفحة مصورة أو فارغة).</p>';
+            }
+
+            if (action === 'extract') {
+                const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                return `<div class="font-bold text-indigo-600 dark:text-indigo-400">📄 النص المستخرج من الصفحة ${currentPageIndex + 1}:</div><div class="p-2.5 rounded-xl bg-white dark:bg-slate-900/70 max-h-56 overflow-y-auto leading-relaxed">${safeText}</div>`;
+            }
+
+            const sentences = text.split(/[.!؟\n]+/).map((s) => s.trim()).filter((s) => s.length > 15);
+            const summaryList = (sentences.length ? sentences : [text]).slice(0, 4);
+
+            if (action === 'summarize') {
+                return `
+                    <div class="font-bold text-indigo-600 dark:text-indigo-400">📝 ملخص الصفحة ${currentPageIndex + 1}:</div>
+                    <ul class="list-disc pr-4 space-y-1">
+                        ${summaryList.map((s) => `<li>${s.replace(/</g, '&lt;')}</li>`).join('')}
+                    </ul>
+                `;
+            }
+
+            if (action === 'explain') {
+                const keyPoints = [...summaryList].sort((a, b) => b.length - a.length).slice(0, 3);
+                return `
+                    <div class="font-bold text-amber-600 dark:text-amber-400">💡 شرح أبرز النقاط في الصفحة ${currentPageIndex + 1}:</div>
+                    ${keyPoints.map((pt, i) => `<div class="p-2 rounded-xl bg-white dark:bg-slate-900/70"><strong>نقطة ${i + 1}:</strong> ${pt.replace(/</g, '&lt;')}</div>`).join('')}
+                `;
+            }
+
+            if (action === 'quiz') {
+                const s1 = summaryList[0] || text;
+                const s2 = summaryList[1] || s1;
+                return `
+                    <div class="font-bold text-rose-600 dark:text-rose-400">❓ أسئلة مراجعة للصفحة ${currentPageIndex + 1}:</div>
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900/70"><strong>س1:</strong> لخّص الفكرة الأساسية الواردة في: "${s1.slice(0, 85).replace(/</g, '&lt;')}..."؟</div>
+                    <div class="p-2 rounded-xl bg-white dark:bg-slate-900/70"><strong>س2:</strong> ما أهمية ما ورد في: "${s2.slice(0, 85).replace(/</g, '&lt;')}..."؟</div>
+                `;
+            }
+
+            const qWords = question.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+            const matched = sentences.filter((s) => qWords.some((w) => s.toLowerCase().includes(w)));
+            if (matched.length) {
+                return `<div class="font-bold text-indigo-600 dark:text-indigo-400">🔍 إجابة مستخرجة من الصفحة:</div><p>${matched.slice(0, 3).join('. ').replace(/</g, '&lt;')}</p>`;
+            }
+            return `<div class="font-bold text-slate-600 dark:text-slate-300">📌 أبرز ما ورد في الصفحة:</div><p>${summaryList[0].replace(/</g, '&lt;')}</p>`;
+        }
+
+        async function runAiTask(action, customQuestion = '') {
+            if (totalPages < 1) {
+                showToast('يرجى فتح ملف PDF أو الكتاب التجريبي أولاً');
+                return;
+            }
+
+            const labels = {
+                summarize: 'تلخيص الصفحة الحالية',
+                explain: 'شرح النقاط المهمة في الصفحة',
+                extract: 'استخراج نص الصفحة الحالية',
+                quiz: 'إنشاء أسئلة اختبار من الصفحة',
+                chat: customQuestion
+            };
+
+            addChatBubble('user', labels[action] || customQuestion);
+            const waitBubble = addChatBubble('ai', '<div class="flex items-center gap-2 text-slate-500"><div class="spinner-sm" style="width:16px;height:16px;border-width:2px;"></div><span>جاري استخراج وتحليل نص الصفحة...</span></div>');
+
+            const pageText = await extractPageText(currentPageIndex);
+            const apiKey = (localStorage.getItem(GEMINI_KEY_STORAGE) || '').trim();
+
+            if (!apiKey || action === 'extract') {
+                setTimeout(() => {
+                    waitBubble.innerHTML = localSmartAnalysis(pageText, action, customQuestion);
+                    el.aiChatMessages.scrollTop = el.aiChatMessages.scrollHeight;
+                }, 200);
+                return;
+            }
+
+            try {
+                const promptMap = {
+                    summarize: `لخّص هذه الصفحة في نقاط واضحة ومباشرة باللغة العربية:\n\n${pageText}`,
+                    explain: `اشرح النقاط الصعبة والمفاهيم المهمة في هذه الصفحة بأسلوب مبسط:\n\n${pageText}`,
+                    quiz: `أنشئ سؤالين أو ثلاثة أسئلة اختبار مع الإجابات بناءً على هذه الصفحة:\n\n${pageText}`,
+                    chat: `بناءً على نص الصفحة التالي:\n${pageText}\n\nأجب عن السؤال: ${customQuestion}`
+                };
+
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: promptMap[action] }] }]
+                    })
+                });
+
+                if (!res.ok) throw new Error('API response error');
+                const json = await res.json();
+                const reply = json && json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts && json.candidates[0].content.parts[0] && json.candidates[0].content.parts[0].text;
+                if (!reply) throw new Error('Empty reply');
+
+                waitBubble.innerHTML = reply
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n/g, '<br>');
+            } catch (_) {
+                waitBubble.innerHTML = localSmartAnalysis(pageText, action, customQuestion);
+            }
+            el.aiChatMessages.scrollTop = el.aiChatMessages.scrollHeight;
+        }
+
+        document.querySelectorAll('.ai-quick-btn').forEach((btn) => {
+            btn.addEventListener('click', () => runAiTask(btn.dataset.aiAction));
+        });
+
+        document.getElementById('ai-chat-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const q = el.aiChatInput.value.trim();
+            if (!q) return;
+            el.aiChatInput.value = '';
+            runAiTask('chat', q);
+        });
+    </script>
+</body>
+</html>
+```
